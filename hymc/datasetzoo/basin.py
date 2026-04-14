@@ -3,6 +3,7 @@ from typing import Dict, List, Union
 
 import numpy as np
 import pandas as pd
+import xarray as xr
 import spotpy
 from hymc.modelzoo.baseconceptualmodel import BaseConceptualModel
 
@@ -33,7 +34,25 @@ class Basin(object):
     warmup_period: int
         Number of timesteps (e.g. days) to warmup the internal states of the conceptual model
     path_additional_features: Union[str, None]
-        Path to a pickle file containing additional features that will be used during calibration
+        Path to a pickle file or netCDF file containing additional features that will be used during calibration.
+        
+        **Pickle file format:**
+            Dictionary where keys are basin IDs and values are date-time indexed pandas DataFrames.
+        
+        **NetCDF file format:**
+            Must contain:
+            - A basin/catchment ID dimension (common names: 'gauge_id', 'basin_id', 'catchment_id', 'station_id', 'id')
+            - A time dimension (common names: 'time', 'date', 'datetime')
+            - One or more data variables containing the additional features
+            
+            Example structure:
+                Dimensions: (gauge_id: 100, time: 8760)  
+                Coordinates:  
+                    gauge_id (gauge_id) <U8 ...  
+                    time (time) datetime64[ns] ...  
+                Data variables:  
+                    pet (gauge_id, time) float64 ...  
+                    temperature (gauge_id, time) float64 ...
 
     References
     ----------
@@ -152,18 +171,74 @@ class Basin(object):
     def _read_data(self) -> pd.DataFrame:
         raise NotImplementedError
 
-    def _load_additional_features(self, path_additional_features) -> Dict[str, pd.DataFrame]:
-        """Read pickle dictionary containing additional features.
+    def _load_additional_features(self, path_additional_features: str) -> Dict[str, pd.DataFrame]:
+        """Read pickle dictionary or netCDF file containing additional features.
+        
+        For netCDF files, this method automatically detects common naming conventions for basin IDs and time 
+        dimensions, and loads only the data for the current basin (self.basin_id).
+
+        Parameters
+        ----------
+        path_additional_features: str
+            Path to the pickle or netCDF file
 
         Returns
         -------
         additional_features: Dict[str, pd.DataFrame]
-            Dictionary where each key is a basin and each value is a date-time indexed pandas DataFrame with the
-            additional features
+            Dictionary where each key is a basin ID and each value is a date-time indexed pandas DataFrame with the
+            additional features. For netCDF files, only contains data for self.basin_id.
+        
+        Raises
+        ------
+        ValueError
+            If the file format is unsupported or required dimensions are not found in the netCDF file
         
         """
-        with open(path_additional_features, "rb") as file:
-            additional_features = pickle.load(file)
+        # check if the file is a pickle or netCDF file
+        extension = path_additional_features.split(".")[-1]
+        
+        if extension in ["pkl", "pickle"]:
+            with open(path_additional_features, "rb") as file:
+                additional_features = pickle.load(file)
+
+        elif extension == "nc":
+            additional_features = {}
+            ds = xr.open_dataset(path_additional_features)
+            
+            # Find basin ID dimension - check common naming conventions
+            basin_dim_names = ["gauge_id", "basin_id", "catchment_id", "station_id", "id", "gauge", "basin", "catchment", "station"]
+            basin_dim = next((dim for dim in basin_dim_names if dim in ds.dims), None)
+            if basin_dim is None:
+                raise ValueError(f"Basin ID dimension not found. Searched: {basin_dim_names}. Available: {list(ds.dims.keys())}")
+            
+            # Find time dimension - check common naming conventions
+            time_dim_names = ["time", "date", "datetime", "timestamp", "tstamp"]
+            time_dim = next((dim for dim in time_dim_names if dim in ds.dims or dim in ds.coords), None)
+            if time_dim is None:
+                raise ValueError(f"Time dimension not found. Searched: {time_dim_names}. Available: {list(ds.dims.keys())}")
+            
+            # Filter for current basin and convert to DataFrame
+            try:
+                ds_basin = ds.sel({basin_dim: self.basin_id})
+            except (KeyError, ValueError):
+                available = ds[basin_dim].values
+                raise ValueError(f"Basin ID '{self.basin_id}' not found. Available: {available[:10]}{'...' if len(available) > 10 else ''}")
+            
+            df_basin = ds_basin.to_dataframe().reset_index()
+            
+            # Remove basin dimension column if it exists
+            if basin_dim in df_basin.columns:
+                df_basin = df_basin.drop(columns=[basin_dim])
+            
+            # Set time as index
+            df_basin.set_index(time_dim, inplace=True)
+            
+            # Store in dictionary format for consistency with pickle files
+            additional_features[self.basin_id] = df_basin
+        
+        else:
+            raise ValueError(f"Unsupported file format for additional features: '.{extension}'. Use pickle (.pkl or .pickle) or netCDF (.nc) files.")
+        
         return additional_features
 
     @staticmethod
