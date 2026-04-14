@@ -21,9 +21,12 @@ class HBV(BaseConceptualModel):
     
     """
 
-    def __init__(self):
+    def __init__(self, resolution: str = "daily"):
         super(HBV, self).__init__()
         self.name = "HBV"
+        if resolution not in ["daily", "hourly"]:
+            raise ValueError("Resolution must be 'daily' or 'hourly'")
+        self.resolution = resolution
 
     def run_model(self, input: np.ndarray, param: List[float]) -> Tuple:
         """Run the model
@@ -114,8 +117,14 @@ class HBV(BaseConceptualModel):
             # total outflow
             out[i] = Q0 + Q1 + Q2  # [mm]
 
+        # get hydrograph length for routing depending on the data resolution
+        if self.resolution == "daily":
+            uh_len = 15
+        elif self.resolution == "hourly":
+            uh_len = 15 * 24
+        
         # routing method
-        UH = self._gamma_routing(alpha=alpha, beta=beta, uh_len=15)
+        UH = self._gamma_routing(alpha=alpha, beta=beta, uh_len=uh_len)
         out = self._uh_conv(discharge=out, unit_hydrograph=UH).reshape((-1, 1))
 
         return out, states
@@ -171,19 +180,20 @@ class HBV(BaseConceptualModel):
 
     @property
     def parameter_ranges(self) -> Dict[str, List[float]]:
+        # parameter ranges for daily data or hourly data
         return {
-            "BETA": (1.0, 6.0),
+            "BETA": (1.0, 6.0) if self.resolution == "daily" else (0.01, 6.0),
             "FC": (50.0, 1000.0),
-            "K0": (0.05, 0.9),
-            "K1": (0.01, 0.5),
-            "K2": (0.001, 0.2),
+            "K0": (0.05, 0.9) if self.resolution == "daily" else (1-(1-0.05)**(1/24), 0.25), # 1-(1-0.9)**(1/24)),
+            "K1": (0.01, 0.5) if self.resolution == "daily" else (1-(1-0.01)**(1/24), 0.05), # 1-(1-0.5)**(1/24)),
+            "K2": (0.001, 0.2) if self.resolution == "daily" else (1-(1-0.001)**(1/24), 1-(1-0.2)**(1/24)),
             "LP": (0.2, 1.0),
-            "PERC": (0.0, 10.0),
+            "PERC": (0.0, 10.0) if self.resolution == "daily" else (0.0, 10.0/24),
             "UZL": (0.0, 100.0),
             "TT": (-2.5, 2.5),
-            "CFMAX": (0.5, 10.0),
+            "CFMAX": (0.5, 10.0) if self.resolution == "daily" else (0.5/24, 10.0/24),
             "CFR": (0.0, 0.1),
             "CWH": (0.0, 0.2),
             "alpha": (0.0, 2.9),
-            "beta": (0.0, 6.5),
+            "beta": (0.0, 6.5) if self.resolution == "daily" else (0.0, 6.5 * 24),
         }
