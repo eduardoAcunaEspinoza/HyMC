@@ -22,7 +22,7 @@ def calibrate_multiple_basins(training_object: Dict, optimization_method, path_o
     pool = multiprocessing.Pool(processes=multiprocessing.cpu_count())
     pool.starmap(
         calibrate_single_basin,
-        [(basin, optimization_method, path_output, kwargs)  for basin in training_object.values()],
+        [(basin, optimization_method, path_output, kwargs) for basin in training_object.values()],
     )
 
     # Close the pool after processing
