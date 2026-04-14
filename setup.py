@@ -21,7 +21,7 @@ def version():
 
 
 setup(
-    name="HyMC",
+    name="hymc",
     license="GPL-3.0",
     version=version(),
     author="Eduardo Acuña Espinoza",
