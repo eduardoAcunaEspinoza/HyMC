@@ -7,7 +7,7 @@ from hymc.modelzoo.baseconceptualmodel import BaseConceptualModel
 
 
 class BasinCamelsPL(Basin):
-    """Class to process data from the CAMELS Poland dataset by [1]_ . 
+    """Class to process data from the CAMELS Poland dataset. 
     
     The class inherits from Basin to create a calibration object following the spotpy library [2]_. However here we 
     code the _read_data method, that specify how we should read the information from CAMELS PL.
